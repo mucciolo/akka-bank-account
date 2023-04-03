@@ -1,0 +1,13 @@
+### create bank account
+POST http://localhost:8080/bank/accounts
+
+### get bank account
+GET http://localhost:8080/bank/accounts/0f12f48d-127f-4ac2-91b1-f091198f86a3
+
+### update bank account balance
+POST http://localhost:8080/bank/accounts/0f12f48d-127f-4ac2-91b1-f091198f86a3
+Content-Type: application/json
+
+{
+  "amount": 2.00
+}
