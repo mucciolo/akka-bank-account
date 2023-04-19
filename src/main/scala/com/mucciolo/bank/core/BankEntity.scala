@@ -8,6 +8,7 @@ import akka.persistence.typed.scaladsl.EventSourcedBehavior.EventHandler
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 import com.mucciolo.bank.core.BankEntity.Error.AccNotFound
 import com.mucciolo.bank.serialization.CborSerializable
+import com.mucciolo.bank.util.Generator
 
 import java.util.UUID
 
@@ -15,6 +16,7 @@ object BankEntity {
 
   val EntityTypeKeyName: String = "Bank"
   type Id = UUID
+  private val RandomIdGenerator: Generator[Id] = () => UUID.randomUUID()
 
   sealed trait Command extends CborSerializable
   final case class CreateAccount(replyTo: ActorRef[CreateAccountReply]) extends Command
@@ -53,11 +55,21 @@ object BankEntity {
 
   type ReplyEffect = akka.persistence.typed.scaladsl.ReplyEffect[Event, State]
 
-  private val CommandHandler: (State, Command) => ReplyEffect = (state, cmd) =>
-    cmd match {
-      case cmd: CreateAccount => createAccount(cmd)
-      case cmd: UpdateAccountBalance => accountBalanceUpdate(state, cmd)
-    }
+  private val CommandHandler: (State, Command) => ReplyEffect = {
+
+    val createAccountWithFixedGen = createAccount(RandomIdGenerator) _
+
+    (state: State, cmd: Command) =>
+      cmd match {
+        case cmd: CreateAccount => createAccountWithFixedGen(state, cmd)
+        case cmd: UpdateAccountBalance => accountBalanceUpdate(state, cmd)
+      }
+  }
+
+  private def createAccount(idGenerator: Generator[Id])(state: State, cmd: CreateAccount): ReplyEffect = {
+    val accId: AccountEntity.Id = idGenerator.nextNotIn(state.accountById.keySet)
+    Effect.persist(AccountCreated(accId)).thenReply(cmd.replyTo)(_ => CreateAccountReply(accId))
+  }
 
   private def accountBalanceUpdate(state: State, cmd: UpdateAccountBalance): ReplyEffect = {
     state.accountById.get(cmd.accId) match {
@@ -71,13 +83,6 @@ object BankEntity {
       case None =>
         Effect.reply(cmd.replyTo)(StatusReply.error(AccNotFound))
     }
-  }
-
-  private def createAccount(cmd: CreateAccount): ReplyEffect = {
-    val accId: AccountEntity.Id = UUID.randomUUID()
-    // TODO check if id already exists
-    Effect.persist(AccountCreated(accId))
-      .thenReply(cmd.replyTo)(_ => CreateAccountReply(accId))
   }
 
   private def eventHandler(ctx: ActorContext[Command]): EventHandler[State, Event] = (state, event) =>
