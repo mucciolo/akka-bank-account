@@ -10,7 +10,7 @@ Compile / scalacOptions ++= Seq(
 )
 
 val AkkaHttpVer = "10.5.0"
-val AkkaVer = "2.8.0"
+val AkkaVer = "2.7.0"
 val CirceVer = "0.14.5"
 val ScalaTestVer = "3.2.15"
 val CatsVer = "2.9.0"
