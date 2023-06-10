@@ -8,11 +8,9 @@ import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.pattern.StatusReply
 import akka.util.Timeout
-import cats.data.Validated.{Invalid, Valid}
 import cats.implicits._
 import com.mucciolo.bank.core.BankEntity.CreateAccountReply
 import com.mucciolo.bank.core.{AccountEntity, AccountEntityQuery, BankEntity}
-import com.mucciolo.bank.http.Validation.{Validator, validate}
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
 
 import java.util.UUID
@@ -61,18 +59,16 @@ final class BankRouter(bank: ActorRef[BankEntity.Command], query: AccountEntityQ
             },
             post {
               entity(as[AccountBalanceUpdateRequest]) { request =>
-                validateRequest(request) {
-                  onSuccess(updateAccountBalance(accId, request)) {
-                    case StatusReply.Success(account: AccountEntity.State) =>
-                      complete(BankAccountBalance(account.balance))
-                    case StatusReply.Error(ex) =>
-                      ex match {
-                        case _: NoSuchElementException =>
-                          complete(StatusCodes.NotFound)
-                        case _: IllegalArgumentException =>
-                          complete(StatusCodes.BadRequest, Error(s"${ex.getMessage}"))
-                      }
-                  }
+                onSuccess(updateAccountBalance(accId, request)) {
+                  case StatusReply.Success(account: AccountEntity.State) =>
+                    complete(BankAccountBalance(account.balance))
+                  case StatusReply.Error(ex) =>
+                    ex match {
+                      case _: NoSuchElementException =>
+                        complete(StatusCodes.NotFound)
+                      case _: IllegalArgumentException =>
+                        complete(StatusCodes.BadRequest, Error(s"${ex.getMessage}"))
+                    }
                 }
               }
             }
@@ -81,12 +77,4 @@ final class BankRouter(bank: ActorRef[BankEntity.Command], query: AccountEntityQ
       )
     }
   )
-
-  private def validateRequest[R: Validator](request: R)(routeIfValid: Route): Route =
-    validate(request) match {
-      case Valid(_) =>
-        routeIfValid
-      case Invalid(failures) =>
-        complete(StatusCodes.BadRequest, Error(failures.toList.map(_.errorMessage).mkString(", ")))
-    }
 }

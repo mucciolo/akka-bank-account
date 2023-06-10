@@ -8,26 +8,22 @@ import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 import com.mucciolo.bank.core.AccountEntity.Error._
 import com.mucciolo.bank.serialization.CborSerializable
 
-import java.util.UUID
-
 object AccountEntity {
 
   val Zero: BigDecimal = BigDecimal(0.0)
   val EntityTypeKeyName: String = "Account"
-  type Id = UUID
 
   sealed trait Command extends CborSerializable
-  // TODO use refined to restrict amount to positive values only
-  final case class Deposit(amount: BigDecimal, replyTo: ActorRef[StatusReply[State]]) extends Command
-  final case class Withdraw(amount: BigDecimal, replyTo: ActorRef[StatusReply[State]]) extends Command
+  final case class Deposit(amount: PositiveAmount, replyTo: ActorRef[StatusReply[State]]) extends Command
+  final case class Withdraw(amount: PositiveAmount, replyTo: ActorRef[StatusReply[State]]) extends Command
 
   sealed trait Event extends CborSerializable
-  final case class Deposited(amount: BigDecimal) extends Event
-  final case class Withdrawn(amount: BigDecimal) extends Event
+  final case class Deposited(amount: PositiveAmount) extends Event
+  final case class Withdrawn(amount: PositiveAmount) extends Event
 
-  // TODO research https://github.com/typelevel/squants to model balance
+  // TODO use https://github.com/typelevel/squants to support multiple currencies
   final case class State(balance: BigDecimal) extends CborSerializable {
-    def canWithdraw(amount: BigDecimal): Boolean = balance - amount >= Zero
+    def canWithdraw(amount: PositiveAmount): Boolean = balance - amount.value >= Zero
   }
   object State {
     val Empty: State = State(Zero)
@@ -35,8 +31,6 @@ object AccountEntity {
 
   object Error {
     val InsufficientFunds = new IllegalArgumentException("Insufficient funds")
-    val InvalidDeposit = new IllegalArgumentException("Deposit amount must be positive")
-    val InvalidWithdraw = new IllegalArgumentException("Withdraw amount must be positive")
   }
 
   type ReplyEffect = akka.persistence.typed.scaladsl.ReplyEffect[Event, State]
@@ -48,29 +42,22 @@ object AccountEntity {
     }
 
   private def deposit(deposit: Deposit): ReplyEffect = {
-    if (deposit.amount > 0)
-      Effect.persist(Deposited(deposit.amount))
-        .thenReply(deposit.replyTo)(StatusReply.success)
-    else
-      Effect.reply(deposit.replyTo)(StatusReply.error(InvalidDeposit))
+    Effect.persist(Deposited(deposit.amount))
+      .thenReply(deposit.replyTo)(StatusReply.success)
   }
 
   private def withdraw(state: State, withdraw: Withdraw): ReplyEffect = {
-    if (withdraw.amount > 0) {
-      if (state.canWithdraw(withdraw.amount))
-        Effect.persist(Withdrawn(withdraw.amount))
-          .thenReply(withdraw.replyTo)(StatusReply.success)
-      else
-        Effect.reply(withdraw.replyTo)(StatusReply.error(InsufficientFunds))
-    } else {
-      Effect.reply(withdraw.replyTo)(StatusReply.error(InvalidWithdraw))
-    }
+    if (state.canWithdraw(withdraw.amount))
+      Effect.persist(Withdrawn(withdraw.amount))
+        .thenReply(withdraw.replyTo)(StatusReply.success)
+    else
+      Effect.reply(withdraw.replyTo)(StatusReply.error(InsufficientFunds))
   }
 
   private val EventHandler: EventHandler[State, Event] = (state, event) =>
     event match {
-      case Deposited(amount) => state.copy(balance = state.balance + amount)
-      case Withdrawn(amount) => state.copy(balance = state.balance - amount)
+      case Deposited(amount) => state.copy(balance = state.balance + amount.value)
+      case Withdrawn(amount) => state.copy(balance = state.balance - amount.value)
     }
 
   def apply(id: Id): Behavior[Command] =

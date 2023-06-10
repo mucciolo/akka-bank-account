@@ -15,36 +15,35 @@ import java.util.UUID
 object BankEntity {
 
   val EntityTypeKeyName: String = "Bank"
-  type Id = UUID
   private val RandomIdGenerator: Generator[Id] = () => UUID.randomUUID()
 
   sealed trait Command extends CborSerializable
   final case class CreateAccount(replyTo: ActorRef[CreateAccountReply]) extends Command
   sealed trait UpdateAccountBalance extends Command {
-    def accId: AccountEntity.Id
-    def amount: BigDecimal
-    def replyTo: ActorRef[StatusReply[AccountEntity.State]]
+    val accId: Id
+    val amount: PositiveAmount
+    val replyTo: ActorRef[StatusReply[AccountEntity.State]]
     def toAccountCommand: AccountEntity.Command
   }
   final case class Deposit(
-    accId: AccountEntity.Id, amount: BigDecimal, replyTo: ActorRef[StatusReply[AccountEntity.State]]
+    accId: Id, amount: PositiveAmount, replyTo: ActorRef[StatusReply[AccountEntity.State]]
   ) extends UpdateAccountBalance {
     override def toAccountCommand: AccountEntity.Command = AccountEntity.Deposit(amount, replyTo)
   }
   final case class Withdraw(
-    accId: AccountEntity.Id, amount: BigDecimal, replyTo: ActorRef[StatusReply[AccountEntity.State]]
+    accId: Id, amount: PositiveAmount, replyTo: ActorRef[StatusReply[AccountEntity.State]]
   ) extends UpdateAccountBalance {
     override def toAccountCommand: AccountEntity.Command = AccountEntity.Withdraw(amount, replyTo)
   }
 
   sealed trait Reply extends CborSerializable
-  final case class CreateAccountReply(accId: AccountEntity.Id) extends Reply
+  final case class CreateAccountReply(accId: Id) extends Reply
 
   sealed trait Event extends CborSerializable
-  final case class AccountCreated(accId: AccountEntity.Id) extends Event
+  final case class AccountCreated(accId: Id) extends Event
 
   private type Account = ActorRef[AccountEntity.Command]
-  final case class State(accountById: Map[AccountEntity.Id, Account]) extends CborSerializable
+  final case class State(accountById: Map[Id, Account]) extends CborSerializable
   object State {
     val Empty: State = State(accountById = Map.empty)
   }
@@ -67,7 +66,7 @@ object BankEntity {
   }
 
   private def createAccount(idGenerator: Generator[Id])(state: State, cmd: CreateAccount): ReplyEffect = {
-    val accId: AccountEntity.Id = idGenerator.nextNotIn(state.accountById.keySet)
+    val accId: Id = idGenerator.nextNotIn(state.accountById.keySet)
     Effect.persist(AccountCreated(accId)).thenReply(cmd.replyTo)(_ => CreateAccountReply(accId))
   }
 

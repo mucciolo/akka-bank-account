@@ -14,18 +14,18 @@ final class CassandraJournalAccountEntityQuery(implicit system: ActorSystem[_]) 
   private val ReadJournal: CassandraReadJournal =
     PersistenceQuery(system).readJournalFor[CassandraReadJournal](CassandraReadJournal.Identifier)
 
-  private def getPersistenceId(accId: AccountEntity.Id): String = {
+  private def getPersistenceId(accId: Id): String = {
     s"$EntityTypeKeyName|$accId"
   }
 
   // TODO use Akka Projection
-  override def getCurrentBalance(accId: AccountEntity.Id): Future[Option[BigDecimal]] = {
+  override def getCurrentBalance(accId: Id): Future[Option[BigDecimal]] = {
     ReadJournal.currentEventsByPersistenceId(getPersistenceId(accId), 0, Long.MaxValue)
       .map(_.event)
       .collectType[AccountEntity.Event]
       .map {
-        case AccountEntity.Deposited(amount) => amount.some
-        case AccountEntity.Withdrawn(amount) => (-amount).some
+        case AccountEntity.Deposited(amount) => amount.value.some
+        case AccountEntity.Withdrawn(amount) => (-amount.value).some
       }.runFold(none[BigDecimal])(_ |+| _)
   }
 

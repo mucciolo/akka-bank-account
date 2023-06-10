@@ -5,7 +5,8 @@ import akka.persistence.testkit.scaladsl.EventSourcedBehaviorTestKit
 import akka.persistence.testkit.scaladsl.EventSourcedBehaviorTestKit.CommandResultWithReply
 import com.mucciolo.bank.core.BankEntity.Error.AccNotFound
 import com.mucciolo.bank.core.BankEntity._
-import com.mucciolo.bank.core.{AccountEntity, BankEntity}
+import com.mucciolo.bank.core.{AccountEntity, BankEntity, Id, PositiveAmount}
+import eu.timepit.refined.refineMV
 
 import java.util.UUID
 
@@ -56,10 +57,11 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       eventSourcedTestKit.initialize(initialState)
 
       val requester = createTestProbe[StatusReply[AccountEntity.State]]()
-      val cmd = BankEntity.Deposit(accId, 10.55, requester.ref)
+      val amount: PositiveAmount = refineMV(BigDecimal(10.55))
+      val cmd = BankEntity.Deposit(accId, amount, requester.ref)
       val result = eventSourcedTestKit.runCommand(cmd)
 
-      acc.expectMessage(AccountEntity.Deposit(10.55, requester.ref))
+      acc.expectMessage(AccountEntity.Deposit(amount, requester.ref))
       result.hasNoEvents shouldBe true
 
     }
@@ -75,7 +77,8 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       eventSourcedTestKit.initialize(initialState)
 
       val nonexistentAccId = UUID.fromString("9fa33c2c-5720-49e6-9946-ce90763d9f33")
-      val cmd = BankEntity.Deposit(nonexistentAccId, 2.34, _)
+      val amount: PositiveAmount = refineMV(BigDecimal(2.34))
+      val cmd = BankEntity.Deposit(nonexistentAccId, amount, _)
       val result = eventSourcedTestKit.runCommand(cmd)
 
       result.reply shouldBe StatusReply.error(AccNotFound)
@@ -95,10 +98,11 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       eventSourcedTestKit.initialize(initialState)
 
       val requester = createTestProbe[StatusReply[AccountEntity.State]]()
-      val cmd = BankEntity.Withdraw(accId, 5.07, requester.ref)
+      val amount: PositiveAmount = refineMV(BigDecimal(5.07))
+      val cmd = BankEntity.Withdraw(accId, amount, requester.ref)
       val result = eventSourcedTestKit.runCommand(cmd)
 
-      acc.expectMessage(AccountEntity.Withdraw(5.07, requester.ref))
+      acc.expectMessage(AccountEntity.Withdraw(amount, requester.ref))
       result.hasNoEvents shouldBe true
 
     }
@@ -114,7 +118,8 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       eventSourcedTestKit.initialize(initialState)
 
       val accId = UUID.fromString("0572cd52-802d-4982-b3f3-4137c5997840")
-      val cmd = BankEntity.Withdraw(accId, 350.00, _)
+      val amount: PositiveAmount = refineMV(BigDecimal(350.00))
+      val cmd = BankEntity.Withdraw(accId, amount, _)
       val result = eventSourcedTestKit.runCommand(cmd)
 
       result.reply shouldBe StatusReply.error(AccNotFound)
@@ -124,7 +129,7 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
 
   }
 
-  private def extractAccId(result: CommandResultWithReply[_, Event, _, _]): AccountEntity.Id = {
+  private def extractAccId(result: CommandResultWithReply[_, Event, _, _]): Id = {
     result.event match {
       case AccountCreated(accId) => accId
     }
