@@ -21,7 +21,6 @@ object AccountEntity {
   final case class Deposited(amount: PositiveAmount) extends Event
   final case class Withdrawn(amount: PositiveAmount) extends Event
 
-  // TODO use https://github.com/typelevel/squants to support multiple currencies
   final case class State(balance: BigDecimal) extends CborSerializable {
     def canWithdraw(amount: PositiveAmount): Boolean = balance - amount.value >= Zero
   }

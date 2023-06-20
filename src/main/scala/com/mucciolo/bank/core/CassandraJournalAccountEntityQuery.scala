@@ -18,7 +18,6 @@ final class CassandraJournalAccountEntityQuery(implicit system: ActorSystem[_]) 
     s"$EntityTypeKeyName|$accId"
   }
 
-  // TODO use Akka Projection
   override def getCurrentBalance(accId: Id): Future[Option[BigDecimal]] = {
     ReadJournal.currentEventsByPersistenceId(getPersistenceId(accId), 0, Long.MaxValue)
       .map(_.event)
