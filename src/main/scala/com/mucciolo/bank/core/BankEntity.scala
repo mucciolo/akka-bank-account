@@ -10,6 +10,7 @@ import com.mucciolo.bank.core.BankEntity.Error.AccNotFound
 import com.mucciolo.bank.serialization.CborSerializable
 import com.mucciolo.bank.util.Generator
 
+import java.time.Instant
 import java.util.UUID
 
 object BankEntity {
@@ -39,8 +40,10 @@ object BankEntity {
   sealed trait Reply extends CborSerializable
   final case class CreateAccountReply(accId: Id) extends Reply
 
-  sealed trait Event extends CborSerializable
-  final case class AccountCreated(accId: Id) extends Event
+  sealed trait Event extends CborSerializable {
+    val timestamp: Instant
+  }
+  final case class AccountCreated(timestamp: Instant, accId: Id) extends Event
 
   private type Account = ActorRef[AccountEntity.Command]
   final case class State(accountById: Map[Id, Account]) extends CborSerializable
@@ -66,8 +69,9 @@ object BankEntity {
   }
 
   private def createAccount(idGenerator: Generator[Id])(state: State, cmd: CreateAccount): ReplyEffect = {
+    val timestamp = Instant.now()
     val accId: Id = idGenerator.nextNotIn(state.accountById.keySet)
-    Effect.persist(AccountCreated(accId)).thenReply(cmd.replyTo)(_ => CreateAccountReply(accId))
+    Effect.persist(AccountCreated(timestamp, accId)).thenReply(cmd.replyTo)(_ => CreateAccountReply(accId))
   }
 
   private def accountBalanceUpdate(state: State, cmd: UpdateAccountBalance): ReplyEffect = {
@@ -86,7 +90,7 @@ object BankEntity {
 
   private def eventHandler(ctx: ActorContext[Command]): EventHandler[State, Event] = (state, event) =>
     event match {
-      case AccountCreated(accId) =>
+      case AccountCreated(_, accId) =>
         val account = ctx.spawn(AccountEntity(accId), s"acc-$accId")
 
         state.copy(state.accountById + (accId -> account))

@@ -17,9 +17,10 @@ import java.util.UUID
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
-final class BankRouter(bank: ActorRef[BankEntity.Command], query: AccountEntityQuery)(
-  implicit scheduler: Scheduler
-) {
+final class BankRouter(
+  bank: ActorRef[BankEntity.Command],
+  query: AccountEntityQuery
+)(implicit scheduler: Scheduler) {
 
   implicit val timeout: Timeout = Timeout(3.seconds)
 
@@ -30,14 +31,15 @@ final class BankRouter(bank: ActorRef[BankEntity.Command], query: AccountEntityQ
     query.getCurrentBalance(id)
 
   private def updateAccountBalance(
-    id: UUID, request: AccountBalanceUpdateRequest
+    id: UUID,
+    request: AccountBalanceUpdateRequest
   ): Future[StatusReply[AccountEntity.State]] =
     bank.ask(replyTo => request.toCommand(id, replyTo))
 
   val routes: Route = Route.seal(
     pathPrefix("bank" / "accounts") {
       concat(
-        pathEndOrSingleSlash {
+        pathEnd {
           post {
             onSuccess(createAccount()) {
               case CreateAccountReply(accId) =>

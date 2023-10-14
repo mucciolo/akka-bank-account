@@ -131,7 +131,7 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
 
   private def extractAccId(result: CommandResultWithReply[_, Event, _, _]): Id = {
     result.event match {
-      case AccountCreated(accId) => accId
+      case AccountCreated(_, accId) => accId
     }
   }
 }
