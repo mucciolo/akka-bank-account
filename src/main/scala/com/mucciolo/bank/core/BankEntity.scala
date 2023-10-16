@@ -6,12 +6,13 @@ import akka.pattern.StatusReply
 import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.EventSourcedBehavior.EventHandler
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
-import com.mucciolo.bank.core.BankEntity.Error.AccNotFound
+import com.mucciolo.bank.core.BankEntity.Error.AccountNotFound
 import com.mucciolo.bank.serialization.CborSerializable
 import com.mucciolo.bank.util.Generator
 
 import java.time.Instant
 import java.util.UUID
+import scala.util.control.NoStackTrace
 
 object BankEntity {
 
@@ -52,7 +53,7 @@ object BankEntity {
   }
 
   object Error {
-    val AccNotFound = new NoSuchElementException("Account not found")
+    object AccountNotFound extends NoStackTrace
   }
 
   type ReplyEffect = akka.persistence.typed.scaladsl.ReplyEffect[Event, State]
@@ -84,7 +85,7 @@ object BankEntity {
             Effect.reply(account)(AccountEntity.Withdraw(amount, replyTo))
         }
       case None =>
-        Effect.reply(cmd.replyTo)(StatusReply.error(AccNotFound))
+        Effect.reply(cmd.replyTo)(StatusReply.error(AccountNotFound))
     }
   }
 

@@ -3,7 +3,7 @@ package com.mucciolo.bank
 import akka.pattern.StatusReply
 import akka.persistence.testkit.scaladsl.EventSourcedBehaviorTestKit
 import akka.persistence.testkit.scaladsl.EventSourcedBehaviorTestKit.CommandResultWithReply
-import com.mucciolo.bank.core.BankEntity.Error.AccNotFound
+import com.mucciolo.bank.core.BankEntity.Error.AccountNotFound
 import com.mucciolo.bank.core.BankEntity._
 import com.mucciolo.bank.core.{AccountEntity, BankEntity, Id, PositiveAmount}
 import eu.timepit.refined.refineMV
@@ -81,7 +81,7 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       val cmd = BankEntity.Deposit(nonexistentAccId, amount, _)
       val result = eventSourcedTestKit.runCommand(cmd)
 
-      result.reply shouldBe StatusReply.error(AccNotFound)
+      result.reply shouldBe StatusReply.error(AccountNotFound)
       result.hasNoEvents shouldBe true
 
     }
@@ -122,7 +122,7 @@ final class BankEntitySpec extends ActorSpecBase[Command, Event, State] {
       val cmd = BankEntity.Withdraw(accId, amount, _)
       val result = eventSourcedTestKit.runCommand(cmd)
 
-      result.reply shouldBe StatusReply.error(AccNotFound)
+      result.reply shouldBe StatusReply.error(AccountNotFound)
       result.hasNoEvents shouldBe true
 
     }
