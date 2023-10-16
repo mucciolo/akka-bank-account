@@ -8,6 +8,8 @@ import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 import com.mucciolo.bank.core.AccountEntity.Error._
 import com.mucciolo.bank.serialization.CborSerializable
 
+import scala.util.control.NoStackTrace
+
 object AccountEntity {
 
   val Zero: BigDecimal = BigDecimal(0.0)
@@ -34,7 +36,7 @@ object AccountEntity {
   }
 
   object Error {
-    val InsufficientFunds = new IllegalArgumentException("Insufficient funds")
+    object InsufficientFunds extends NoStackTrace
   }
 
   type ReplyEffect = akka.persistence.typed.scaladsl.ReplyEffect[Event, State]
