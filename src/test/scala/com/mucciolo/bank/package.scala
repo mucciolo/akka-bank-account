@@ -8,6 +8,7 @@ package object bank {
     """
       akka.actor.serialization-bindings {
         "com.mucciolo.bank.serialization.CborSerializable" = jackson-cbor
+        "scala.math.BigDecimal" = jackson-cbor
       }
       """)
     .withFallback(EventSourcedBehaviorTestKit.config)

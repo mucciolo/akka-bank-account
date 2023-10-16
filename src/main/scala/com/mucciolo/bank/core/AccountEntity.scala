@@ -13,9 +13,14 @@ object AccountEntity {
   val Zero: BigDecimal = BigDecimal(0.0)
   val EntityTypeKeyName: String = "Account"
 
-  sealed trait Command extends CborSerializable
+  sealed trait Action extends CborSerializable
+
+  sealed trait Command extends Action
   final case class Deposit(amount: PositiveAmount, replyTo: ActorRef[StatusReply[State]]) extends Command
   final case class Withdraw(amount: PositiveAmount, replyTo: ActorRef[StatusReply[State]]) extends Command
+
+  sealed trait Query extends Action
+  final case class GetBalance(replyTo: ActorRef[BigDecimal]) extends Query
 
   sealed trait Event extends CborSerializable
   final case class Deposited(amount: PositiveAmount) extends Event
@@ -34,10 +39,11 @@ object AccountEntity {
 
   type ReplyEffect = akka.persistence.typed.scaladsl.ReplyEffect[Event, State]
 
-  private val CommandHandler: (State, Command) => ReplyEffect = (state, cmd) =>
-    cmd match {
+  private val ActionHandler: (State, Action) => ReplyEffect = (state, action) =>
+    action match {
       case cmd: Deposit => deposit(cmd)
       case cmd: Withdraw => withdraw(state, cmd)
+      case GetBalance(replyTo) => Effect.none.thenReply(replyTo)(_.balance)
     }
 
   private def deposit(deposit: Deposit): ReplyEffect = {
@@ -59,11 +65,11 @@ object AccountEntity {
       case Withdrawn(amount) => state.copy(balance = state.balance - amount.value)
     }
 
-  def apply(id: Id): Behavior[Command] =
-    EventSourcedBehavior.withEnforcedReplies[Command, Event, State](
+  def apply(id: Id): Behavior[Action] =
+    EventSourcedBehavior.withEnforcedReplies[Action, Event, State](
       persistenceId = PersistenceId.of(EntityTypeKeyName, id.toString),
       emptyState = State.Empty,
-      commandHandler = CommandHandler,
+      commandHandler = ActionHandler,
       eventHandler = EventHandler
     )
 
