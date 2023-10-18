@@ -1,4 +1,4 @@
-scalaVersion := "2.13.11"
+scalaVersion := "2.13.12"
 name := "akka-bank-account"
 
 Compile / scalacOptions ++= Seq(
