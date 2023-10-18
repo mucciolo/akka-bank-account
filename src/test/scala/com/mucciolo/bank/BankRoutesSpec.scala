@@ -5,24 +5,22 @@ import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 import akka.http.scaladsl.model.headers.Location
 import akka.http.scaladsl.model.{StatusCodes, Uri}
-import akka.pattern.StatusReply
 import cats.implicits.catsSyntaxOptionId
-import com.mucciolo.bank.core.BankEntity.{CreateAccount, CreateAccountReply, Deposit, Withdraw}
-import com.mucciolo.bank.core.{AccountEntity, AccountEntityQuery, BankEntity}
+import com.mucciolo.bank.core.Bank._
+import com.mucciolo.bank.core.{AccountEntityQuery, Bank}
 import com.mucciolo.bank.http.BankRouter
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
 import io.circe.Json
 
 import java.util.UUID
-import scala.concurrent.Future
 
 final class BankRoutesSpec extends RouteSpec {
 
   import akka.actor.typed.scaladsl.adapter._
 
-  private implicit val typedSystem: ActorSystem[_] = system.toTyped
+  private implicit val typedSystem: ActorSystem[Nothing] = system.toTyped
 
-  private val bank = TestProbe[BankEntity.Command]()
+  private val bank = TestProbe[Bank.Action]()
   private val bankAccountQuery = mock[AccountEntityQuery]
   private val router = new BankRouter(bank.ref, bankAccountQuery)
   private val routes = router.routes
@@ -30,11 +28,11 @@ final class BankRoutesSpec extends RouteSpec {
   "Bank routes" when {
     "[POST /bank/accounts] creating account" should {
       "return 201" in {
-
         val testResult = Post("/bank/accounts") ~> routes
         val createAccountMsg = bank.expectMessageType[CreateAccount]
         val accId = UUID.fromString("f1a64587-9786-4b17-b357-1d1f0e61fc30")
-        createAccountMsg.replyTo ! CreateAccountReply(accId)
+
+        createAccountMsg.replyTo ! CreateAccountResponse(accId)
 
         testResult ~> check {
           status shouldBe StatusCodes.Created
@@ -47,10 +45,18 @@ final class BankRoutesSpec extends RouteSpec {
 
       val accId = UUID.fromString("5f360fe7-41c2-4325-b0d2-80f2ce220471")
 
-      "return 200 given existent account" in {
-        bankAccountQuery.getCurrentBalance _ expects accId returns Future.successful(Option(11.50))
+      "pass the requested account id to the bank " in {
+        Get(s"/bank/accounts/$accId") ~> routes
+        bank.expectMessageType[GetAccountBalance].accId shouldBe accId
+      }
 
-        Get(s"/bank/accounts/$accId") ~> routes ~> check {
+      "return 200 given existent account" in {
+        val testResult = Get(s"/bank/accounts/$accId") ~> routes
+        val getAccountBalanceMsg = bank.expectMessageType[GetAccountBalance]
+
+        getAccountBalanceMsg.replyTo ! AccountBalance(11.50)
+
+        testResult ~> check {
           status shouldBe StatusCodes.OK
           responseAs[Json] shouldBe Json.obj(
             "balance" -> Json.fromDoubleOrNull(11.50)
@@ -59,10 +65,24 @@ final class BankRoutesSpec extends RouteSpec {
       }
 
       "return 404 given non-existent account" in {
-        bankAccountQuery.getCurrentBalance _ expects accId returns Future.successful(None)
+        val testResult = Get(s"/bank/accounts/$accId") ~> routes
+        val getAccountBalanceMsg = bank.expectMessageType[GetAccountBalance]
 
-        Get(s"/bank/accounts/$accId") ~> routes ~> check {
+        getAccountBalanceMsg.replyTo ! AccountBalanceNotFound
+
+        testResult ~> check {
           status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "return 500 given failure" in {
+        val testResult = Get(s"/bank/accounts/$accId") ~> routes
+        val getAccountBalanceMsg = bank.expectMessageType[GetAccountBalance]
+
+        getAccountBalanceMsg.replyTo ! GetAccountBalanceFailure("Something happened.")
+
+        testResult ~> check {
+          status shouldBe StatusCodes.InternalServerError
         }
       }
     }
@@ -71,14 +91,32 @@ final class BankRoutesSpec extends RouteSpec {
 
       val accId = UUID.fromString("ebb4e542-3659-4628-8379-52f57a405024")
 
+      "pass the requested account id to the bank when the amount is positive" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(1.00)
+        )
+        Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+
+        bank.expectMessageType[Deposit].accId shouldBe accId
+      }
+
+      "pass the requested account id to the bank when the amount is negative" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(-1.00)
+        )
+        Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+
+        bank.expectMessageType[Withdraw].accId shouldBe accId
+      }
+
       "return 200 given amount is positive (deposit)" in {
         val accBalanceUpdateRequest = Json.obj(
           "amount" -> Json.fromDoubleOrNull(5.10)
         )
         val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
         val depositMsg = bank.expectMessageType[Deposit]
-        depositMsg.accId shouldBe accId
-        depositMsg.replyTo ! StatusReply.success(AccountEntity.State(balance = 22.75))
+
+        depositMsg.replyTo ! Bank.DepositSuccess(updatedBalance = 22.75)
 
         testResult ~> check {
           status shouldBe StatusCodes.OK
@@ -94,8 +132,8 @@ final class BankRoutesSpec extends RouteSpec {
         )
         val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
         val withdrawMsg = bank.expectMessageType[Withdraw]
-        withdrawMsg.accId shouldBe accId
-        withdrawMsg.replyTo ! StatusReply.success(AccountEntity.State(balance = 55.08))
+
+        withdrawMsg.replyTo ! Bank.WithdrawSuccess(updatedBalance = 55.08)
 
         testResult ~> check {
           status shouldBe StatusCodes.OK
@@ -110,6 +148,7 @@ final class BankRoutesSpec extends RouteSpec {
           "amount" -> Json.fromDoubleOrNull(0.00)
         )
         val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+
         bank.expectNoMessage()
 
         testResult ~> check {
@@ -122,6 +161,7 @@ final class BankRoutesSpec extends RouteSpec {
           "amount" -> Json.Null
         )
         val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+
         bank.expectNoMessage()
 
         testResult ~> check {
@@ -132,13 +172,69 @@ final class BankRoutesSpec extends RouteSpec {
       "return 400 given entity is null" in {
         val accBalanceUpdateRequest = Json.Null
         val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+
         bank.expectNoMessage()
 
         testResult ~> check {
           status shouldBe StatusCodes.BadRequest
         }
       }
+
+      "return 404 given positive amount but non-existent account" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(50.00)
+        )
+        val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+        val withdrawMsg = bank.expectMessageType[Deposit]
+
+        withdrawMsg.replyTo ! Bank.DepositAccountNotFound
+
+        testResult ~> check {
+          status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "return 404 given negative amount but non-existent account" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(-100.00)
+        )
+        val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+        val withdrawMsg = bank.expectMessageType[Withdraw]
+
+        withdrawMsg.replyTo ! Bank.WithdrawAccountNotFound
+
+        testResult ~> check {
+          status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "return 500 on failure given positive amount" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(50.00)
+        )
+        val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+        val withdrawMsg = bank.expectMessageType[Deposit]
+
+        withdrawMsg.replyTo ! Bank.DepositFailure("Something happened.")
+
+        testResult ~> check {
+          status shouldBe StatusCodes.InternalServerError
+        }
+      }
+
+      "return 500 on failure given negative amount" in {
+        val accBalanceUpdateRequest = Json.obj(
+          "amount" -> Json.fromDoubleOrNull(-10.00)
+        )
+        val testResult = Post(s"/bank/accounts/$accId", accBalanceUpdateRequest) ~> routes
+        val withdrawMsg = bank.expectMessageType[Withdraw]
+
+        withdrawMsg.replyTo ! Bank.WithdrawFailure("Something happened.")
+
+        testResult ~> check {
+          status shouldBe StatusCodes.InternalServerError
+        }
+      }
     }
   }
-
 }

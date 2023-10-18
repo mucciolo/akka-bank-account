@@ -3,14 +3,14 @@ package com.mucciolo.bank.http
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 import akka.http.scaladsl.Http
-import com.mucciolo.bank.core.{BankEntity, CassandraJournalAccountEntityQuery}
+import com.mucciolo.bank.core.{Bank, CassandraJournalAccountEntityQuery}
 
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 object HttpServer {
 
-  def runForever(implicit bankSystem: ActorSystem[BankEntity.Command]): Unit = {
+  def runForever(implicit bankSystem: ActorSystem[Bank.Action]): Unit = {
 
     val bankAccountQuery = new CassandraJournalAccountEntityQuery()
     val router = new BankRouter(bankSystem, bankAccountQuery)

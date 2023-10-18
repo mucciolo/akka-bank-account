@@ -6,35 +6,27 @@ import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.model.headers.Location
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
-import akka.pattern.StatusReply
 import akka.util.Timeout
 import cats.implicits._
-import com.mucciolo.bank.core.BankEntity.CreateAccountReply
-import com.mucciolo.bank.core.{AccountEntity, AccountEntityQuery, BankEntity}
+import com.mucciolo.bank.core.Bank._
+import com.mucciolo.bank.core.{AccountEntityQuery, Bank}
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
+import eu.timepit.refined.auto._
+import eu.timepit.refined.refineV
 
 import java.util.UUID
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
 final class BankRouter(
-  bank: ActorRef[BankEntity.Command],
+  bank: ActorRef[Bank.Action],
   query: AccountEntityQuery
 )(implicit scheduler: Scheduler) {
 
-  implicit val timeout: Timeout = Timeout(3.seconds)
+  private implicit val timeout: Timeout = Timeout(3.seconds)
 
-  private def createAccount(): Future[CreateAccountReply] =
-    bank.ask(BankEntity.CreateAccount)
-
-  private def getAccountBalance(id: UUID): Future[Option[BigDecimal]] =
-    query.getCurrentBalance(id)
-
-  private def updateAccountBalance(
-    id: UUID,
-    request: AccountBalanceUpdateRequest
-  ): Future[StatusReply[AccountEntity.State]] =
-    bank.ask(replyTo => request.toCommand(id, replyTo))
+  private val completeWithInternalServerError =
+    complete(StatusCodes.InternalServerError, Error("Don't worry, this is on us!"))
 
   val routes: Route = Route.seal(
     pathPrefix("bank" / "accounts") {
@@ -42,7 +34,7 @@ final class BankRouter(
         pathEnd {
           post {
             onSuccess(createAccount()) {
-              case CreateAccountReply(accId) =>
+              case CreateAccountResponse(accId) =>
                 respondWithHeader(Location(s"/bank/accounts/$accId")) {
                   complete(StatusCodes.Created)
                 }
@@ -53,24 +45,36 @@ final class BankRouter(
           concat(
             get {
               onSuccess(getAccountBalance(accId)) {
-                case Some(balance) =>
+                case AccountBalance(balance) =>
                   complete(BankAccountBalance(balance))
-                case None =>
+                case GetAccountBalanceFailure(_) =>
+                  completeWithInternalServerError
+                case Bank.AccountBalanceNotFound =>
                   complete(StatusCodes.NotFound)
               }
             },
             post {
               entity(as[AccountBalanceUpdateRequest]) { request =>
-                onSuccess(updateAccountBalance(accId, request)) {
-                  case StatusReply.Success(account: AccountEntity.State) =>
-                    complete(BankAccountBalance(account.balance))
-                  case StatusReply.Error(ex) =>
-                    ex match {
-                      case _: NoSuchElementException =>
-                        complete(StatusCodes.NotFound)
-                      case _: IllegalArgumentException =>
-                        complete(StatusCodes.BadRequest, Error(s"${ex.getMessage}"))
-                    }
+                if (request.amount > 0) {
+                  onSuccess(deposit(accId, request.amount)) {
+                    case DepositSuccess(updatedBalance) =>
+                      complete(BankAccountBalance(updatedBalance))
+                    case DepositAccountNotFound =>
+                      complete(StatusCodes.NotFound)
+                    case DepositFailure(_) =>
+                      completeWithInternalServerError
+                  }
+                } else { // amount < 0
+                  onSuccess(withdraw(accId, request.amount)) {
+                    case WithdrawSuccess(updatedBalance) =>
+                      complete(BankAccountBalance(updatedBalance))
+                    case WithdrawFailure(_) =>
+                      completeWithInternalServerError
+                    case WithdrawInsufficientFunds =>
+                      complete(StatusCodes.BadRequest, Error("Insufficient funds."))
+                    case WithdrawAccountNotFound =>
+                      complete(StatusCodes.NotFound)
+                  }
                 }
               }
             }
@@ -79,4 +83,17 @@ final class BankRouter(
       )
     }
   )
+
+  private def createAccount(): Future[CreateAccountResponse] =
+    bank.ask(CreateAccount)
+
+  private def getAccountBalance(accId: UUID): Future[GetAccountBalanceResponse] =
+    bank.ask(GetAccountBalance(accId, _))
+
+  private def withdraw(accId: UUID, amount: NonZeroBigDecimal): Future[WithdrawResponse] =
+    bank.ask(Withdraw(accId, refineV.unsafeFrom(-amount), _))
+
+  private def deposit(accId: UUID, amount: NonZeroBigDecimal): Future[DepositResponse] =
+    bank.ask(Deposit(accId, refineV.unsafeFrom(amount), _))
+
 }
