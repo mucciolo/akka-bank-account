@@ -6,6 +6,8 @@ import akka.persistence.typed.scaladsl.EventSourcedBehavior.EventHandler
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 import com.mucciolo.bank.serialization.CborSerializable
 
+import java.time.Instant
+
 object Account {
 
   val Zero: BigDecimal = BigDecimal(0.0)
@@ -28,9 +30,11 @@ object Account {
   final case class GetBalance(queryId: Id, replyTo: ActorRef[GetBalanceResponse]) extends Query
   final case class GetBalanceResponse(queryId: Id, balance: BigDecimal) extends CborSerializable
 
-  sealed trait Event extends CborSerializable
-  final case class Deposited(amount: PositiveAmount) extends Event
-  final case class Withdrawn(amount: PositiveAmount) extends Event
+  sealed trait Event extends CborSerializable {
+    val timestamp: Instant
+  }
+  final case class Deposited(timestamp: Instant, amount: PositiveAmount) extends Event
+  final case class Withdrawn(timestamp: Instant, amount: PositiveAmount) extends Event
 
   final case class State(balance: BigDecimal) extends CborSerializable {
     def canWithdraw(amount: PositiveAmount): Boolean = balance - amount.value >= Zero
@@ -44,12 +48,12 @@ object Account {
   private val ActionHandler: (State, Action) => ReplyEffect = (state, action) =>
     action match {
       case Deposit(transactionId, amount, replyTo) =>
-        Effect.persist(Deposited(amount))
+        Effect.persist(Deposited(Instant.now(), amount))
           .thenReply(replyTo)(updatedState => DepositSuccess(transactionId, updatedState.balance))
 
       case Withdraw(transactionId, amount, replyTo) =>
         if (state.canWithdraw(amount))
-          Effect.persist(Withdrawn(amount))
+          Effect.persist(Withdrawn(Instant.now(), amount))
             .thenReply(replyTo)(updatedState => WithdrawSuccess(transactionId, updatedState.balance))
         else
           Effect.reply(replyTo)(InsufficientFunds(transactionId))
@@ -61,8 +65,8 @@ object Account {
 
   private val EventHandler: EventHandler[State, Event] = (state, event) =>
     event match {
-      case Deposited(amount) => state.copy(balance = state.balance + amount.value)
-      case Withdrawn(amount) => state.copy(balance = state.balance - amount.value)
+      case Deposited(_, amount) => state.copy(balance = state.balance + amount.value)
+      case Withdrawn(_, amount) => state.copy(balance = state.balance - amount.value)
     }
 
   def apply(id: Id, initialState: State = State.Empty): Behavior[Action] =

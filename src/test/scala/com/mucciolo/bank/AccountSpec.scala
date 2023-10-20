@@ -27,7 +27,7 @@ final class AccountSpec extends ActorSpecBase[Action, Event, State] {
       val deposit = Deposit(transactionId, amount, _)
       val result = eventSourcedTestKit.runCommand(deposit)
 
-      result.event shouldBe Deposited(amount)
+      result.event should matchPattern { case Deposited(_, `amount`) => }
       result.state shouldBe State(amount.value)
       result.reply shouldBe DepositSuccess(transactionId, 1.25)
     }
@@ -41,7 +41,7 @@ final class AccountSpec extends ActorSpecBase[Action, Event, State] {
       val withdraw = Withdraw(transactionId, amount, _)
       val result = eventSourcedTestKit.runCommand(withdraw)
 
-      result.event shouldBe Withdrawn(amount)
+      result.event should matchPattern { case Withdrawn(_, `amount`) => }
       result.state shouldBe State(initialState.balance - amount.value)
       result.reply shouldBe WithdrawSuccess(transactionId, 2.25)
     }

@@ -5,32 +5,36 @@ import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 import akka.http.scaladsl.model.headers.Location
 import akka.http.scaladsl.model.{StatusCodes, Uri}
+import akka.stream.scaladsl.Source
 import cats.implicits.catsSyntaxOptionId
 import com.mucciolo.bank.core.Bank._
-import com.mucciolo.bank.core.{AccountEntityQuery, Bank}
+import com.mucciolo.bank.core.{AccountQuery, AccountStatement, AccountStatementEntry, Bank}
 import com.mucciolo.bank.http.BankRouter
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
 import io.circe.Json
 
+import java.time.Instant
 import java.util.UUID
 
-final class BankRoutesSpec extends RouteSpec {
+final class BankRouterSpec extends RouteSpec {
 
   import akka.actor.typed.scaladsl.adapter._
 
   private implicit val typedSystem: ActorSystem[Nothing] = system.toTyped
 
   private val bank = TestProbe[Bank.Action]()
-  private val bankAccountQuery = mock[AccountEntityQuery]
+  private val bankAccountQuery = mock[AccountQuery]
   private val router = new BankRouter(bank.ref, bankAccountQuery)
   private val routes = router.routes
 
   "Bank routes" when {
     "[POST /bank/accounts] creating account" should {
+
+      val accId = UUID.fromString("f1a64587-9786-4b17-b357-1d1f0e61fc30")
+
       "return 201" in {
         val testResult = Post("/bank/accounts") ~> routes
         val createAccountMsg = bank.expectMessageType[CreateAccount]
-        val accId = UUID.fromString("f1a64587-9786-4b17-b357-1d1f0e61fc30")
 
         createAccountMsg.replyTo ! CreateAccountResponse(accId)
 
@@ -233,6 +237,59 @@ final class BankRoutesSpec extends RouteSpec {
 
         testResult ~> check {
           status shouldBe StatusCodes.InternalServerError
+        }
+      }
+    }
+
+    "[GET /bank/accounts/:id/statements] statement request" should {
+
+      val accId = UUID.fromString("8e2db55c-c755-43ad-ba8c-5a30ed3c39b5")
+
+      "return 200 on empty statement " in {
+
+        val emptyStatement = AccountStatement(List.empty)
+
+        bankAccountQuery.getAccountStatement _ expects accId returning Source.single(emptyStatement)
+
+        Get(s"/bank/accounts/$accId/statements") ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[Json] shouldBe Json.obj(
+            "entries" -> Json.arr()
+          )
+        }
+      }
+
+      "return 200 on non-empty statement " in {
+
+        val statement = AccountStatement(
+          List(
+            AccountStatementEntry(
+              timestamp = Instant.ofEpochSecond(1),
+              amount = 10.00,
+            ),
+            AccountStatementEntry(
+              timestamp = Instant.ofEpochSecond(2),
+              amount = -5.00
+            )
+          )
+        )
+
+        bankAccountQuery.getAccountStatement _ expects accId returning Source.single(statement)
+
+        Get(s"/bank/accounts/$accId/statements") ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[Json] shouldBe Json.obj(
+            "entries" -> Json.arr(
+              Json.obj(
+                "timestamp" -> Json.fromString("1970-01-01T00:00:01Z"),
+                "amount" -> Json.fromDoubleOrNull(10.00)
+              ),
+              Json.obj(
+                "timestamp" -> Json.fromString("1970-01-01T00:00:02Z"),
+                "amount" -> Json.fromDoubleOrNull(-5.00)
+              )
+            )
+          )
         }
       }
     }
